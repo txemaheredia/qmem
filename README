@@ -1,1 +1,37 @@
-Hello World!
+QMEM
+
+version: 0.1
+Author: Txema Heredia Genestar
+Email: txema.heredia@gmail.com
+Institution: Evolutionary Biology Institute (UPF-CSIC)
+
+
+
+
+=========================================================
+ABOUT QMEM:
+
+Qmem is a script designed to describe the memory usage of a
+SGE cluster. If your cluster has memory restrictions, the
+usage of qstat solely is not enough to monitor its state 
+properly. Qmem attempts to solve that.
+
+
+
+
+
+=========================================================
+HOW TO USE IT:
+In order to use qmem, your execution hosts must have 
+configured "PER HOST" the following COMPLEX ATTIBUTES:
+        h_vmem = set to the host total memory
+        num_jobs = set to the host num of processors
+
+You can exchange "num_jobs" by "slots" here in the code 
+lines 75 and 76. We opted to use "num_jobs" instead of
+"slots" because this allows us to submit jobs that override 
+it and request 0 " If you want to stick to "slots",simply 
+change it in lines 75 and 76.
+
+Once you have configured both complex attributes in all 
+hosts, you are ready to run qmem.

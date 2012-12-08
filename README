@@ -21,7 +21,7 @@ properly. Qmem attempts to solve that.
 
 
 =========================================================
-HOW TO USE IT:
+INSTALL:
 In order to use qmem, your execution hosts must have 
 configured "PER HOST" the following COMPLEX ATTIBUTES:
         h_vmem = set to the host total memory
@@ -35,3 +35,16 @@ change it in lines 75 and 76.
 
 Once you have configured both complex attributes in all 
 hosts, you are ready to run qmem.
+
+
+
+
+
+=========================================================
+HOW TO USE IT:
+qmem	Displays the memory usage of the cluster, one line
+	per host
+
+qmem -u Displays the memory usage of the cluster, node by 
+	node and job by job. Lists all hosts and all jobs
+	submitted to each host.

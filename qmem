@@ -21,14 +21,43 @@ You can exchange "num_jobs" by "slots" here in the code lines 75 and 76. We opte
 "slots" because this allows us to submit jobs that override it and request 0 " If you want to stick to "slots", 
 simply change it in lines 75 and 76.
 
+
+Thanks:
+Pablo: find color bug
+Jaime: fixing color bug
+Angel: Sorting properly qhost
+
+Changes:
+Work by default with slots variable instead of num_jobs
+Prints host information (global and -u user information) one by one as they are generated instead of all at once at the end.
+Fixed host name sorting conflicts with rocks-cluster
+Added counter of running & suspended jobs at the end of output
+
+Reads consumable variable local_disk
+New parameter: -d
+
 */
 
 
 
 // ARGUMENT PARSING
 
-if ( sizeof($argv) > 2 || (sizeof($argv)==2 && $argv[1]!="-u") ) {
-	echo ("Usage:\n\tqmem\t\tShows the memory usage of all the cluster nodes.\n\tqmem -u\t\tShows the memory usage of all the cluster nodes and all the jobs currently running in the cluster.\n\tqmem -h\t\tShows this help.\n\n");
+$param_jobs=false;
+$param_disk=false;
+$param_ok=true;
+
+foreach ($argv as $param) {
+	if ($param == $argv[0]) {
+	} else if ($param == "-u") {
+		$param_jobs=true;
+	} else if ($param == "-d") {
+		$param_disk=true;
+	} else {
+		$param_ok=false;
+	}
+}
+if ( sizeof($argv) > 3 || !$param_ok ) {
+	echo ("Usage:\n\tqmem\t[-u] [-d]\tShows the memory usage of all the cluster nodes.\n\t\t-u\t\tShows the memory usage of all the cluster nodes and all the jobs currently running in the cluster.\n\t\t-d\t\tShows the real local disk usage on all the cluster nodes and jobs.\n\tqmem -h\t\tShows this help.\n\n");
 	exit(1);
 
 }
@@ -37,19 +66,18 @@ if ( sizeof($argv) > 2 || (sizeof($argv)==2 && $argv[1]!="-u") ) {
 // GET NODE LIST
 
 $computes=null;
-exec("qhost | grep -v \"\-\-\-\|global\|HOSTNAME\" | awk '{print $1}'",$res_comp);
-//echo "res_comp";
-//print_r($res_comp);
+exec("qhost | grep -v \"\-\-\-\|global\|HOSTNAME\" | awk '{print $1}' | sort -t- +1 -2 +2 -3 -n",$res_comp);
+
 $i =0;
 foreach ($res_comp as $value) {
 	$exec_nodes[$i] = $value;
 	$i++;
 }
-//echo "exec_nodes";
-//print_r($exec_nodes);
 
 
-
+$total_running=0;
+$total_suspended=0;
+$total_slots=0;
 
 
 // OBTAIN EXECUTION HOST INFORMATION
@@ -58,6 +86,7 @@ foreach ($res_comp as $value) {
 
 for ($i=0; $i<sizeof($exec_nodes); $i++) {
 	$mem = null;
+	$disk = null;
 	$jobs = null;
 	$matchs=null;
 
@@ -71,24 +100,52 @@ for ($i=0; $i<sizeof($exec_nodes); $i++) {
 	}
 	$computes[$exec_nodes[$i]]['used']=0;
 	$computes[$exec_nodes[$i]]['reserved']=0;
+	$computes[$exec_nodes[$i]]['used_disk']=0;
+	$computes[$exec_nodes[$i]]['reserved_disk']=0;
 	$computes[$exec_nodes[$i]]['jobs']=0;
-	exec("qconf -se ".$exec_nodes[$i]." | sed 's/,/\\n/g' | grep num_jobs",$jobs);
-	if ( preg_match("/num_jobs=\d+/", $jobs[0], $matchs) ) {
+	$computes[$exec_nodes[$i]]['df']=0;
+
+	exec("qconf -se ".$exec_nodes[$i]." | sed 's/,/\\n/g' | grep slots",$jobs);
+	if ( preg_match("/slots=\d+/", $jobs[0], $matchs) ) {
 		$jobs=explode("=",$matchs[0]);
 		$computes[$exec_nodes[$i]]['maxjobs']=$jobs[1];
 	} else {
 		$computes[$exec_nodes[$i]]['maxjobs']=0;
 	}
-}
-//print_r($computes);
+	
+	exec("qconf -se ".$exec_nodes[$i]." | sed 's/,/\\n/g' | grep local_disk",$disk);
+	$matchs=null;
+	if ( preg_match("/local_disk=\d+(\.\d+){0,1}[TtGgMmKk]/", $disk[0], $matchs) ) {
+		$disk=explode("=",$matchs[0]);
+		$computes[$exec_nodes[$i]]['diskmax']=$disk[1];
+	} else {
+		$computes[$exec_nodes[$i]]['diskmax']="1K";
+	}
+	if ($param_disk) {
+		$df=null;
+		exec(" ssh ".$exec_nodes[$i]." \"df -h | grep '\/tmp' | awk '{print \\$3}' \"",$df);
+		$computes[$exec_nodes[$i]]['df']=$df[0];
+	}
 
+	$total_slots+=$computes[$exec_nodes[$i]]['maxjobs'];
+
+}
 
 // GET H_VMEM DEFAULT VALUE
 
 exec("qconf -sc | grep h_vmem | awk '{print $7}'",$exec_default);
 $default_mem = $exec_default[0];
 
+$exec_default=null;
+exec("qconf -sc | grep local_disk | awk '{print $7}'",$exec_default);
+$default_disk = $exec_default[0];
 
+// PRINT HEADER
+if ($param_disk) {
+	echo shell_exec("printf '\x1b\x5b0;39;49m\t\t\t\t\t\t\t\t\t\t Memory    Memory    Memory\t\t\t\t  Disk    Disk   Disk\n  Compute\t\t\t\tUsage\t\t\t   Percentage\tNeeeded   Reserved    Total\tSlots\t\t\t  Real  Reserved Total\x1b\x5b0;39;49m\n'");
+} else {
+	echo shell_exec("printf '\x1b\x5b0;39;49m\t\t\t\t\t\t\t\t\t\t Memory    Memory    Memory\t\t\t       Disk    Disk\n  Compute\t\t\t\tUsage\t\t\t   Percentage\tNeeeded   Reserved    Total\tSlots\t\t     Reserved  Total\x1b\x5b0;39;49m\n'");
+}
 
 
 // ITERATOR FOR EACH EXECUTION HOST
@@ -100,11 +157,14 @@ for ($i=0; $i<sizeof($exec_nodes); $i++) {
 
 	$llista_qstat=null;
 	exec("qstat -u *, -s r -q *@".$exec_nodes[$i]."| grep -v \"\-\-\-\" | grep -v \"job-ID\" | sed 's/@/ /g' | sed 's/.local//g' | awk '{print $1\"\\t\"$9}' | sort -k2 | awk '{print $1\"@\"$2}'",$llista_qstat);
+	$total_running+=sizeof($llista_qstat);
 
 	// OBTAIN LIST OF JOBS ASSIGNED TO THAT NODE BUT CURRENTLY SUSPENDED
 
 	$llista_suspended=null;
 	exec("qstat -u *, -s s -q *@".$exec_nodes[$i]."| grep -v \"\-\-\-\" | grep -v \"job-ID\" | sed 's/@/ /g' | sed 's/.local//g' | awk '{print $1\"\\t\"$9}' | sort -k2 | awk '{print $1\"@\"$2}'",$llista_suspended);
+	$total_running+=sizeof($llista_suspended);
+	$total_suspended+=sizeof($llista_suspended);
 
 
 
@@ -133,6 +193,8 @@ for ($i=0; $i<sizeof($exec_nodes); $i++) {
 
 		$mem_job=null;
 		$mem_job=$default_mem;
+		$disk_job=null;
+		$disk_job=$default_disk;
 		$user = null;
 		$maxvmem=null;
 		$temps=null;
@@ -141,6 +203,10 @@ for ($i=0; $i<sizeof($exec_nodes); $i++) {
 		// PARSE JOB INFO
 		if (sizeof($exec_qstat) > 0) {
 			foreach ( $exec_qstat as $qstat ) {
+				$matches=null;
+				if ( preg_match("/local_disk=([\d|.]+[KkMmGgTt]{0,1})/",$qstat,$matches) ) {
+					$disk_job=$matches[1];
+				}
 				$matches=null;
 				if ( preg_match("/h_vmem=([\d|.]+[KkMmGgTt]{0,1})/",$qstat,$matches) ) {
 					$mem_job=$matches[1];
@@ -158,22 +224,32 @@ for ($i=0; $i<sizeof($exec_nodes); $i++) {
 
 			}
 		}
+		$du=null;
+		if ($param_disk && $param_jobs) {
+			exec(" ssh $comp \"du --max-depth=0 -h /tmp/*$jobid* | awk '{print \\$1}' \"",$du);
+		}
+		else {$du[0]="0";}
 
 		// CONVERT MEMORY FROM BYTES TO A SEIZABLE UNIT
 		$factor_reserved=factor_memoria($mem_job);	
 		$factor_maxvmem=factor_memoria($maxvmem);	
+		$factor_reserved_disk=factor_memoria($disk_job);	
+		$factor_du=factor_memoria($du[0]);	
 
 
 		// UPDATE THE COMPUTE USAGE WITH THE JOB INFORMATION
 		$computes[$comp]['used']+=(substr($maxvmem,0,-1)*$factor_maxvmem);
 		$computes[$comp]['reserved']+=(substr($mem_job,0,-1)*$factor_reserved*$slot);
+		$computes[$comp]['reserved_disk']+=(substr($disk_job,0,-1)*$factor_reserved_disk*$slot);
 		$computes[$comp]['jobs']+=$slot;
 		$computes[$comp]['job_array'][$jobid]['user']=$user;
 		$computes[$comp]['job_array'][$jobid]['jobname']=$jobname;
 		$computes[$comp]['job_array'][$jobid]['status']="running";
 		$computes[$comp]['job_array'][$jobid]['maxvmem']=(substr($maxvmem,0,-1)*$factor_maxvmem);
 		$computes[$comp]['job_array'][$jobid]['reserved']=(substr($mem_job,0,-1)*$factor_reserved*$slot);
+		$computes[$comp]['job_array'][$jobid]['reserved_disk']=(substr($disk_job,0,-1)*$factor_reserved_disk*$slot);
 		$computes[$comp]['job_array'][$jobid]['time']=$temps;
+		$computes[$comp]['job_array'][$jobid]['du']=(substr($du[0],0,-1)*$factor_du);
 	
 
 	}
@@ -210,6 +286,8 @@ for ($i=0; $i<sizeof($exec_nodes); $i++) {
 
 		$mem_job=null;
 		$mem_job=$default_mem;
+		$disk_job=null;
+		$disk_job=$default_disk;
 		$user = null;
 		$maxvmem=null;
 		$temps=null;
@@ -218,6 +296,10 @@ for ($i=0; $i<sizeof($exec_nodes); $i++) {
 		// PARSE JOB INFO
 		if (sizeof($exec_qstat) > 0) {
 			foreach ( $exec_qstat as $qstat ) {
+				$matches=null;
+				if ( preg_match("/local_disk=([\d|.]+[KkMmGgTt]{0,1})/",$qstat,$matches) ) {
+					$disk_job=$matches[1];
+				}
 				$matches=null;
 				if ( preg_match("/h_vmem=([\d|.]+[KkMmGgTt]{0,1})/",$qstat,$matches) ) {
 					$mem_job=$matches[1];
@@ -234,46 +316,44 @@ for ($i=0; $i<sizeof($exec_nodes); $i++) {
 
 			}	
 		}
+		$du=null;
+		if ($param_disk && $param_jobs) {
+			exec(" ssh $comp \"du --max-depth=0 -h /tmp/*$jobid* | awk '{print \\$1}' \"",$du);
+		}
+		else {$du[0]="0";}
 
 
 		// CONVERT MEMORY FROM BYTES TO A SEIZABLE UNIT
 		$factor_reserved=factor_memoria($mem_job);	
 		$factor_maxvmem=factor_memoria($maxvmem);	
+		$factor_reserved_disk=factor_memoria($disk_job);	
+		$factor_du=factor_memoria($du[0]);	
 
 
 		// UPDATE THE COMPUTE USAGE WITH THE JOB INFORMATION
 		$computes[$comp]['used']+=(substr($maxvmem,0,-1)*$factor_maxvmem);
 		$computes[$comp]['reserved']+=(substr($mem_job,0,-1)*$factor_reserved*$slot);
+		$computes[$comp]['reserved_disk']+=(substr($disk_job,0,-1)*$factor_reserved_disk*$slot);
 		$computes[$comp]['jobs']+=$slot;
 		$computes[$comp]['job_array'][$jobid]['user']=$user;
 		$computes[$comp]['job_array'][$jobid]['jobname']=$jobname;
 		$computes[$comp]['job_array'][$jobid]['status']="suspended";
 		$computes[$comp]['job_array'][$jobid]['maxvmem']=(substr($maxvmem,0,-1)*$factor_maxvmem);
 		$computes[$comp]['job_array'][$jobid]['reserved']=(substr($mem_job,0,-1)*$factor_reserved*$slot);
+		$computes[$comp]['job_array'][$jobid]['reserved_disk']=(substr($disk_job,0,-1)*$factor_reserved_disk*$slot);
 		$computes[$comp]['job_array'][$jobid]['time']=$temps;
+		$computes[$comp]['job_array'][$jobid]['du']=(substr($du[0],0,-1)*$factor_du);
 
 	}
 
-}
-
-
-
-
-
-
 
 // PRINTING
+	$compute=null;
+	$compute=$computes[$exec_nodes[$i]];
+	$id = $exec_nodes[$i];
 
 
 
-$pending_array=null;
-$mem_array=null;
-
-// PRINT HEADER
-echo shell_exec("printf '\\x1b\\x5b0;39;49m\\t\\t\\t\\t\\t\\t\\t\\t\\t\\t Memory    Memory    Memory\\n  Compute\\t\\t\\t\\tUsage\\t\\t\\t   Percentage\\tNeeeded   Reserved    Total\\tSlots\\x1b\\x5b0;39;49m\\n'");
-
-// FOR EACH EXECUTION HOST
-foreach($computes as $id=>$compute) {
 
 
 	$ratio_reserved = 0;
@@ -283,25 +363,23 @@ foreach($computes as $id=>$compute) {
 	$gastat = 0;
 	$ocupat = 0;
 	$lliure = 1;
-
 	$long=50;
 
 	$gastat = ceil($ratio_maxvmem*$long);
-	$ocupat = round($ratio_reserved*$long,0)-$gastat;
+	$ocupat = ceil($ratio_reserved*$long)-$gastat;
 	$lliure = $long-$ocupat-$gastat;
 	
 	$gastat_str="";
-	for ($i = 0; $i<$gastat; $i++) {
+	for ($k = 0; $k<$gastat; $k++) {
 		$gastat_str.="#";
 	}
 
 	$ocupat_str="";
-	for ($i = 0; $i<$ocupat; $i++) {
+	for ($k = 0; $k<$ocupat; $k++) {
 		$ocupat_str.="#";
 	}
-
 	$lliure_str="";
-	for ($i = 0; $i<$lliure; $i++) {
+	for ($k = 0; $k<$lliure; $k++) {
 		$lliure_str.="#";
 	}
 
@@ -325,23 +403,34 @@ foreach($computes as $id=>$compute) {
 	$max_jobs=$compute['maxjobs'];
 	$color_jobs=colorejar($compute['jobs'], $max_jobs);
 	
+	$reserved_disk=ajustar_memoria($compute['reserved_disk']);
+	$reserved_disk=alinear($reserved_disk,4);
+	$df=alinear($compute['df'],6);
+	$total_disk=ajustar_memoria($compute['diskmax']);
+	$total_disk=alinear($total_disk,4);
+	
 	
 	$cpu_ocupat_str="";
-	for ($i = 0; $i<$compute['jobs']; $i++) {
+	for ($k = 0; $k<$compute['jobs']; $k++) {
 		$cpu_ocupat_str.="#";
 	}
 
 	$cpu_lliure_str="";
-	for ($i = 0; $i<($max_jobs-$compute['jobs']); $i++) {
+	for ($k = 0; $k<($max_jobs-$compute['jobs']); $k++) {
 		$cpu_lliure_str.="#";
 	}
 
+
 		
 	// PRINT GLOBAL NODE INFO	
-	echo shell_exec("printf '\\x1b\\x5b0;39;49m$id:\\t\\x1b\\x5b0;31;49m$gastat_str\\x1b\\x5b1;31;49m$ocupat_str\\x1b\\x5b1;32;49m$lliure_str$color_percent  $percent"." %% "."\\t\\x1b\\x5b0;31;49m$used\\x1b\\x5b0;39;49m  / \\x1b\\x5b1;31;49m$reserved\\x1b\\x5b0;39;49m  / \\x1b\\x5b1;32;49m$total\\t$color_jobs".$compute['jobs']."\\x1b\\x5b0;39;49m / ".$color_jobs.$max_jobs."\\x1b\\x5b0;39;49m (\\x1b\\x5b0;31;49m$cpu_ocupat_str\\x1b\\x5b1;32;49m$cpu_lliure_str\\x1b\\x5b0;39;49m)\\n'");
+	if ($param_disk) {
+		echo shell_exec("printf '\x1b\x5b0;39;49m$id:\t\x1b\x5b0;31;49m$gastat_str\x1b\x5b1;31;49m$ocupat_str\x1b\x5b1;32;49m$lliure_str$color_percent  $percent"." %% "."\t\x1b\x5b0;31;49m$used\x1b\x5b0;39;49m  / \x1b\x5b1;31;49m$reserved\x1b\x5b0;39;49m  / \x1b\x5b1;32;49m$total\t$color_jobs".$compute['jobs']."\x1b\x5b0;39;49m / ".$color_jobs.$max_jobs."\x1b\x5b0;39;49m (\x1b\x5b0;31;49m$cpu_ocupat_str\x1b\x5b1;32;49m$cpu_lliure_str\x1b\x5b0;39;49m)\t\x1b\x5b0;31;49m".$df."\x1b\x5b0;39;49m  / \x1b\x5b1;31;49m$reserved_disk\x1b\x5b0;39;49m / \x1b\x5b1;32;49m$total_disk\n'");
+	} else {
+		echo shell_exec("printf '\x1b\x5b0;39;49m$id:\t\x1b\x5b0;31;49m$gastat_str\x1b\x5b1;31;49m$ocupat_str\x1b\x5b1;32;49m$lliure_str$color_percent  $percent"." %% "."\t\x1b\x5b0;31;49m$used\x1b\x5b0;39;49m  / \x1b\x5b1;31;49m$reserved\x1b\x5b0;39;49m  / \x1b\x5b1;32;49m$total\t$color_jobs".$compute['jobs']."\x1b\x5b0;39;49m / ".$color_jobs.$max_jobs."\x1b\x5b0;39;49m (\x1b\x5b0;31;49m$cpu_ocupat_str\x1b\x5b1;32;49m$cpu_lliure_str\x1b\x5b0;39;49m)\t\x1b\x5b1;31;49m$reserved_disk\x1b\x5b0;39;49m / \x1b\x5b1;32;49m$total_disk\n'");
+	}
 
 	// IF -U ARGUMENT IS SET, PRINT JOB INFO
-	if (isset($argv[1]) && $argv[1] == "-u" && isset($compute['job_array']) && sizeof($compute['job_array'])>0 ) {
+	if ($param_jobs && isset($compute['job_array']) && sizeof($compute['job_array'])>0 ) {
 		$max_len_user=0;
 		$max_len_name=0;
 		$max_len_time=0;
@@ -368,42 +457,78 @@ foreach($computes as $id=>$compute) {
 			$maxvmem=alinear(ajustar_memoria($job['maxvmem']),9);
 			$reserved=alinear(ajustar_memoria($job['reserved']),4);
 			$percent=alinear(round(($job['maxvmem']/$job['reserved'])*100,1),5);
-			if ($job['status'] == "running") {
-				$color_percent=colorejar_invers($percent,100);
-				echo shell_exec("printf ' $color_percent$user\\x1b\\x5b0;39;49m\\t$jobid\\t$color_percent$percent %%\\t$maxvmem\\x1b\\x5b0;39;49m  / $color_percent$reserved\\x1b\\x5b0;39;49m\\t$jobname\\t- $temps\\n'");
+			
+			$reserved_disk=alinear(ajustar_memoria($job['reserved_disk']),4);
+	
+
+			if ($param_disk) {
+				$du=alinear(ajustar_memoria($job['du']),4);
+				if ($job['status'] == "running") {
+					$color_percent=colorejar_invers($percent,100);
+				echo shell_exec("printf ' $color_percent$user\x1b\x5b0;39;49m\t$jobid\t$color_percent$percent %%\t$maxvmem\x1b\x5b0;39;49m  / $color_percent$reserved\x1b\x5b0;39;49m\t$jobname\t- $temps\t$du - $reserved_disk\n'");
+				} else {
+					$color_percent = "\x1b\x5b1;34;49m";
+					echo shell_exec("printf ' $color_percent$user\t$jobid\t$percent %%\t$maxvmem  / $reserved\t$jobname\t- $temps\t$du - $reserved_disk\tSUSPENDED\n\x1b\x5b0;39;49m'");
+				}
 			} else {
-				$color_percent = "\\x1b\\x5b1;34;49m";
-				echo shell_exec("printf ' $color_percent$user\\t$jobid\\t$percent %%\\t$maxvmem  / $reserved\\t$jobname\\t- $temps\\tSUSPENDED\\n\\x1b\\x5b0;39;49m'");
+				if ($job['status'] == "running") {
+					$color_percent=colorejar_invers($percent,100);
+				echo shell_exec("printf ' $color_percent$user\x1b\x5b0;39;49m\t$jobid\t$color_percent$percent %%\t$maxvmem\x1b\x5b0;39;49m  / $color_percent$reserved\x1b\x5b0;39;49m\t$jobname\t- $temps\t$reserved_disk\n'");
+				} else {
+					$color_percent = "\x1b\x5b1;34;49m";
+					echo shell_exec("printf ' $color_percent$user\t$jobid\t$percent %%\t$maxvmem  / $reserved\t$jobname\t- $temps\t$reserved_disk\tSUSPENDED\n\x1b\x5b0;39;49m'");
+				}
 			}
 		}
 	}
 
 
+
+
+
 }
 
+
+
+
+
+
+
+
+
+
+$pending_array=null;
+$mem_array=null;
+
+
 // PRINT TAIL
-echo shell_exec("printf '\\n \\x1b\\x5b0;31;49m# \\x1b\\x5b0;39;49mMemory needed\\n \\x1b\\x5b1;31;49m# \\x1b\\x5b0;39;49mMemory reserved\\n \\x1b\\x5b1;32;49m# \\x1b\\x5b0;39;49mMemory available\\n\\n'");
+$susp="";
+if ($total_suspended>0) {
+	$susp="[".$total_suspended." suspended] ";
+}
+echo shell_exec("printf '\n \x1b\x5b0;31;49m# \x1b\x5b0;39;49mMemory needed\n \x1b\x5b1;31;49m# \x1b\x5b0;39;49mMemory reserved\n \x1b\x5b1;32;49m# \x1b\x5b0;39;49mMemory available\n\n'");
+echo ("(".$total_running." used slots ".$susp."out of ".$total_slots.")\n");
 
 
 
 // RETURN COLOR ACCORDING TO A SCALE FROM RED TO PURPLE TO YELLOW TO GREEN
 function colorejar($variable, $final) {
-	$color = "\\x1b\\x5b0;39;49m";
+	$color = "\x1b\x5b0;39;49m";
 	
 	if ($variable >= 0.86*$final) {
-		$color = "\\x1b\\x5b0;31;49m";
+		$color = "\x1b\x5b0;31;49m";
 	} else if ( $variable >= 0.72*$final ) {
-		$color = "\\x1b\\x5b1;31;49m";
+		$color = "\x1b\x5b1;31;49m";
 	} else if ( $variable >= 0.58*$final ) {
-		$color = "\\x1b\\x5b1;35;49m";
+		$color = "\x1b\x5b1;35;49m";
 	} else if ( $variable >= 0.44*$final ) {
-		$color = "\\x1b\\x5b1;33;49m";
+		$color = "\x1b\x5b1;33;49m";
 	} else if ( $variable >= 0.30*$final ) {
-		$color = "\\x1b\\x5b0;33;49m";
+		$color = "\x1b\x5b0;33;49m";
 	} else if ( $variable >= 0.16*$final ) {
-		$color = "\\x1b\\x5b1;32;49m";
+		$color = "\x1b\x5b1;32;49m";
 	} else if ( $variable < 0.16*$final ) {
-		$color = "\\x1b\\x5b0;32;49m";
+		$color = "\x1b\x5b0;32;49m";
  	}
 	return $color;
 
@@ -411,22 +536,22 @@ function colorejar($variable, $final) {
 
 // RETURN COLOR ACCORDING TO A SCALE FROM GREEN TO YELLOW TO PURPLE TO RED
 function colorejar_invers($variable, $final) {
-	$color = "\\x1b\\x5b0;39;49m";
+	$color = "\x1b\x5b0;39;49m";
 	
 	if ($variable >=0.86*$final ) {
-		$color = "\\x1b\\x5b0;32;49m";
+		$color = "\x1b\x5b0;32;49m";
 	} else if ( $variable >= 0.72*$final ) {
-		$color = "\\x1b\\x5b1;32;49m";
+		$color = "\x1b\x5b1;32;49m";
 	} else if ( $variable >= 0.58*$final ) {
-		$color = "\\x1b\\x5b0;33;49m";
+		$color = "\x1b\x5b0;33;49m";
 	} else if ( $variable >= 0.44*$final ) {
-		$color = "\\x1b\\x5b1;33;49m";
+		$color = "\x1b\x5b1;33;49m";
 	} else if ( $variable >= 0.3*$final ) {
-		$color = "\\x1b\\x5b1;35;49m";
+		$color = "\x1b\x5b1;35;49m";
 	} else if ( $variable >= 0.16*$final ) {
-		$color = "\\x1b\\x5b1;31;49m";
+		$color = "\x1b\x5b1;31;49m";
 	} else if ( $variable < 0.16*$final ) {
-		$color = "\\x1b\\x5b0;31;49m";
+		$color = "\x1b\x5b0;31;49m";
  	}
 	return $color;
 

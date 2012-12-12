@@ -1,6 +1,7 @@
 QMEM
 
-version: 0.1
+version: 0.2
+release date: 12/12/2012
 Author: Txema Heredia Genestar
 Email: txema.heredia@gmail.com
 Institution: Evolutionary Biology Institute (UPF-CSIC)
@@ -24,16 +25,19 @@ properly. Qmem attempts to solve that.
 INSTALL:
 In order to use qmem, your execution hosts must have 
 configured "PER HOST" the following COMPLEX ATTIBUTES:
-        h_vmem = set to the host total memory
-        num_jobs = set to the host num of processors
+        slots = set to the host num of processors.
+        h_vmem = set to the host total memory. Set to 
+		CONSUMABLE
+        local_disk = set to the host $TMPDIR partition size. 
+		Set to CONSUMABLE
 
-You can exchange "num_jobs" by "slots" here in the code 
-lines 75 and 76. We opted to use "num_jobs" instead of
-"slots" because this allows us to submit jobs that override 
-it and request 0 " If you want to stick to "slots",simply 
-change it in lines 75 and 76.
+This is the default behaviour. If you want to use your 
+custom variables, just change the names in the configuration 
+section at the begining of the script. The slots and memory 
+variables are mandatory to run qmem. The local_disk one is 
+optional and you can run qmem without it.
 
-Once you have configured both complex attributes in all 
+Once you have configured these complex attributes in all 
 hosts, you are ready to run qmem.
 
 
@@ -48,3 +52,38 @@ qmem	Displays the memory usage of the cluster, one line
 qmem -u Displays the memory usage of the cluster, node by 
 	node and job by job. Lists all hosts and all jobs
 	submitted to each host.
+     -d Shows the real local disk usage on all the cluster
+        nodes and jobs.
+
+
+
+
+=========================================================
+CHANGELOG:
+        v0.2
+        - Work by default with slots variable instead of 
+	num_jobs.
+        - Print host information (global and -u user 
+	information) one by one as they are generated instead 
+	of all at once at the end.
+        - Read info of new consumable variable local_disk.
+        - Added new parameter (-d) to report job and node 
+	real disk usage (df/du).
+        - Fixed host name sorting conflicts with Rocks-Cluster 
+	(Thanks to Angel Carreno).
+        - Added counter of running & suspended jobs at the 
+	end of output (Thanks to Angel Carreno).
+        - Fixed color coding escape problems in some terminals 
+	(Thanks to Pablo Escobar for finding it and Jaime 
+	Huerta for fixing it).
+
+
+=========================================================
+ACKNOWLEDGEMENTS:
+        Pablo Escobar: Find color-coding bug.
+        Jaime Huerta: Fix color-coding bug.
+        Angel Carreno: Fix proper sort of qhost.
+                        Add suspended jobs counter
+
+
+

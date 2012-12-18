@@ -67,6 +67,7 @@ $mem_var="h_vmem";	// Memory attribute
 $disk_var="local_disk"; // Disk attribute
 $disk_partition="/tmp"; // ${TMPDIR} path
 
+$domain=preg_quote(".domain.com");  // domain to strip out of the exec node names
 
 
 $escaped_disk_partition=str_replace('/', '\/', $disk_partition);
@@ -99,7 +100,7 @@ if ( sizeof($argv) > 3 || !$param_ok ) {
 // GET NODE LIST
 
 $computes=null;
-exec("qhost | grep -v \"\-\-\-\|global\|HOSTNAME\" | awk '{print $1}' | sort -t- +1 -2 +2 -3 -n",$res_comp);
+exec("qhost | sed 's/$domain//' | grep -v \"\-\-\-\|global\|HOSTNAME\" | awk '{print $1}' | sort -t- +1 -2 +2 -3 -n",$res_comp);
 
 $i =0;
 foreach ($res_comp as $value) {

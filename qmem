@@ -1,4 +1,4 @@
-#!/usr/bin/php
+#!/usr/bin/env php
 <?php
 /*
 ****************************************************************************
@@ -16,7 +16,7 @@
 
 HOW TO USE IT:
 In order to use qmem, your execution hosts must have configured "PER HOST" 
-three COMPLEX ATTIBUTES:
+three COMPLEX ATTRIBUTES:
 	slots = set to the host num of processors.
 	h_vmem = set to the host total memory. Set to CONSUMABLE
 	local_disk = set to the host $TMPDIR partition size. Set to CONSUMABLE
@@ -150,7 +150,7 @@ for ($i=0; $i<sizeof($exec_nodes); $i++) {
 	$computes[$exec_nodes[$i]]['reserved']=0;	//user requested memory
 	$computes[$exec_nodes[$i]]['max']="1K";		//maximum node memory
 	$computes[$exec_nodes[$i]]['used_disk']=0;	//used disk. Only checked with -d. Check tmpdir job by job using du
-	$computes[$exec_nodes[$i]]['df']=0;		//used disk. Only checked with -d. Check whole /tmp filesystem using df
+	$computes[$exec_nodes[$i]]['df']=0;		    //used disk. Only checked with -d. Check whole /tmp filesystem using df
 	$computes[$exec_nodes[$i]]['reserved_disk']=0;	//user requested disk
 	$computes[$exec_nodes[$i]]['diskmax']="1K";	//maximum node disk
 	$computes[$exec_nodes[$i]]['jobs']=0;		//used slots
